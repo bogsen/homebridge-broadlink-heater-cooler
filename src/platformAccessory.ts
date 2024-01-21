@@ -26,14 +26,12 @@ export class AirCondionerAccessory implements AccessoryPlugin {
   private readonly clean: Service | undefined;
   private readonly mildew: Service | undefined;
   private readonly sleep: Service | undefined;
-  private readonly auto: Service | undefined;
 
   private showDisplay = false;
   private showHealth = false;
   private showClean = false;
   private showMildew = false;
   private showSleep = false;
-  private showAuto = false;
 
   services: Service[]
   private swing = 3;
@@ -83,10 +81,6 @@ export class AirCondionerAccessory implements AccessoryPlugin {
       this.showSleep = config['sleep'] as boolean;
     }
 
-    if ('auto' in config) {
-      this.showAuto = config['auto'] as boolean;
-    }
-
     this.service = new this.api.hap.Service.HeaterCooler;
     this.service.getCharacteristic(api.hap.Characteristic.Active)
       .on('get', this.handleActiveGet.bind(this))
@@ -117,6 +111,10 @@ export class AirCondionerAccessory implements AccessoryPlugin {
     this.service.getCharacteristic(api.hap.Characteristic.SwingMode)
       .on('get', this.handleSwingGet.bind(this))
       .on('set', this.handleSwingSet.bind(this));
+
+    this.service.getCharacteristic(api.hap.Characteristic.TargetFanState)
+      .on('get', this.handleTargetFanStateGet.bind(this))
+      .on('set', this.handleTargetFanStateSet.bind(this));
 
     this.service.getCharacteristic(api.hap.Characteristic.CoolingThresholdTemperature).props.minValue = 16;
     this.service.getCharacteristic(api.hap.Characteristic.CoolingThresholdTemperature).props.maxValue = 32;
@@ -172,14 +170,6 @@ export class AirCondionerAccessory implements AccessoryPlugin {
       this.services.push(this.sleep);
     }
 
-    if (this.showAuto) {
-      this.auto = new api.hap.Service.Switch('Auto', 'Auto');
-      this.auto.getCharacteristic(api.hap.Characteristic.On)
-        .on('get', this.handleAutoGet.bind(this))
-        .on('set', this.handleAutoSet.bind(this));
-      this.services.push(this.auto);
-    }
-
     api.on('didFinishLaunching', () => {
       this.airConditionerAPI.connect();
     });
@@ -197,6 +187,7 @@ export class AirCondionerAccessory implements AccessoryPlugin {
       this.service.getCharacteristic(api.hap.Characteristic.CurrentTemperature).updateValue(this.currentTemperature());
       this.service.getCharacteristic(api.hap.Characteristic.SwingMode).updateValue(this.swingValue());
       this.updateRotationSpeed();
+      this.updateAuto();
 
       if (this.showDisplay) {
         this.display!.getCharacteristic(api.hap.Characteristic.On).updateValue(this.displayValue());
@@ -217,8 +208,6 @@ export class AirCondionerAccessory implements AccessoryPlugin {
       if (this.showSleep) {
         this.sleep!.getCharacteristic(api.hap.Characteristic.On).updateValue(this.sleepValue());
       }
-  
-      this.updateAuto();
     });
 
   }
@@ -228,9 +217,7 @@ export class AirCondionerAccessory implements AccessoryPlugin {
   }
 
   updateAuto() {
-    if (this.showAuto) {
-      this.auto!.getCharacteristic(this.api.hap.Characteristic.On).updateValue(this.autoValue());
-    }
+    this.service.getCharacteristic(this.api.hap.Characteristic.TargetFanState).updateValue(this.autoValue());
   }
 
   getServices(): Service[] {
@@ -563,9 +550,9 @@ export class AirCondionerAccessory implements AccessoryPlugin {
     callback(null, currentValue);
   }
 
-  handleAutoSet(value, callback) {
+  handleTargetFanStateSet(value, callback) {
     this.log.debug('Triggered SET Auto:', value);
-    if (value === true) {
+    if (value === this.api.hap.Characteristic.TargetFanState.AUTO) {
       this.airConditionerAPI.setSpeed(Fanspeed.auto, State.off, State.off);
     } else {
       this.airConditionerAPI.setSpeed(this.lastRotationSpeed, this.lastTurbo, this.lastMute);
@@ -574,11 +561,15 @@ export class AirCondionerAccessory implements AccessoryPlugin {
     callback(null);
   }
 
-  private autoValue(): boolean {
-    return this.airConditionerAPI.model.fanspeed === Fanspeed.auto;
+  private autoValue(): number {
+    if (this.airConditionerAPI.model.fanspeed === Fanspeed.auto) {
+      return this.api.hap.Characteristic.TargetFanState.AUTO;
+    } else {
+      return this.api.hap.Characteristic.TargetFanState.MANUAL;
+    }
   }
 
-  handleAutoGet(callback) {
+  handleTargetFanStateGet(callback) {
     this.log.debug('Triggered GET Auto');
 
     const currentValue = this.autoValue();
